@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "./openzeppelin/Ownable.sol";
-import "./openzeppelin/ReentrancyGuard.sol";
-import "./openzeppelin/ERC20.sol";
+import "./openzeppelin/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
+import "./openzeppelin/openzeppelin-contracts/contracts/access/Ownable.sol";
+import "./openzeppelin/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 
-contract KIVRA is ERC20, Ownable, ReentrancyGuard {
+contract Fynera is ERC20, Ownable, ReentrancyGuard {
     uint256 public constant MAX_SUPPLY = 1_000_000 * 10**18;
 
     mapping(address => bool) public blacklist;
@@ -33,38 +33,45 @@ contract KIVRA is ERC20, Ownable, ReentrancyGuard {
     }
 
     modifier notPaused() {
-        require(!paused, "Paused");
+        require(!paused, "Contract is paused");
         _;
     }
 
     constructor(
-        address _treasury,
-        address[] memory ownerMultisig,
-        address[] memory normalMultisig
-    ) ERC20("FYNERA", "FYN") {
-        treasury = _treasury;
+    address _treasury,
+    address[] memory ownerMultisig,
+    address[] memory normalMultisig
+) ERC20("FYNERA", "FYN") Ownable(msg.sender) {
+    treasury = _treasury;
 
-        for (uint256 i = 0; i < ownerMultisig.length; i++) {
-            _setMultisig(ownerMultisig[i], true, true);
-        }
-
-        for (uint256 i = 0; i < normalMultisig.length; i++) {
-            _setMultisig(normalMultisig[i], true, false);
-        }
-
-        _mint(msg.sender, MAX_SUPPLY);
+    for (uint256 i = 0; i < ownerMultisig.length; i++) {
+        _setMultisig(ownerMultisig[i], true, true);
     }
 
-    function _transfer(address from, address to, uint256 amount) internal override {
-        require(!blacklist[from] && !blacklist[to], "Blacklisted");
-        uint256 fee = whitelist[from] || whitelist[to] ? 0 : (amount * feePercent) / 100;
+    for (uint256 i = 0; i < normalMultisig.length; i++) {
+        _setMultisig(normalMultisig[i], true, false);
+    }
+
+    _mint(msg.sender, MAX_SUPPLY);
+}
+
+    // 🔹 Override della funzione transfer per includere fee e blacklist
+    function _transfer(address from, address to, uint256 amount) internal override notPaused {
+        require(!blacklist[from] && !blacklist[to], "Blacklisted address");
+
+        uint256 fee = (whitelist[from] || whitelist[to]) ? 0 : (amount * feePercent) / 100;
         uint256 sendAmount = amount - fee;
+
         super._transfer(from, to, sendAmount);
-        if (fee > 0) super._transfer(from, treasury, fee);
+
+        if (fee > 0) {
+            super._transfer(from, treasury, fee);
+        }
     }
 
+    // 🔹 Funzioni di pausa
     function pause() external onlyOwner {
-        require(block.timestamp >= lastPauseTimestamp + pauseCooldown, "Cooldown");
+        require(block.timestamp >= lastPauseTimestamp + pauseCooldown, "Cooldown not passed");
         paused = true;
         lastPauseTimestamp = block.timestamp;
         emit Paused(msg.sender);
@@ -75,8 +82,9 @@ contract KIVRA is ERC20, Ownable, ReentrancyGuard {
         emit Unpaused(msg.sender);
     }
 
+    // 🔹 Fee
     function updateFee(uint256 newFee) external onlyOwner {
-        require(newFee <= 5, "Max 5%");
+        require(newFee <= 5, "Fee cannot exceed 5%");
         feePercent = newFee;
         emit FeeUpdated(newFee);
     }
@@ -86,6 +94,7 @@ contract KIVRA is ERC20, Ownable, ReentrancyGuard {
         emit TreasuryUpdated(newTreasury);
     }
 
+    // 🔹 Whitelist / Blacklist
     function setWhitelist(address account, bool status) external onlyOwner {
         whitelist[account] = status;
         emit WhitelistUpdated(account, status);
@@ -96,6 +105,7 @@ contract KIVRA is ERC20, Ownable, ReentrancyGuard {
         emit BlacklistUpdated(account, status);
     }
 
+    // 🔹 Gestione multisig
     function _setMultisig(address account, bool status, bool ownerPrivileges) internal {
         isMultisig[account] = status;
         isOwnerMultisig[account] = ownerPrivileges;
